@@ -7,7 +7,7 @@ import os
 import sys
 
 from . import __version__
-from .checks import EndpointConfig, chat_ping, list_models, stream_ping
+from .checks import EndpointConfig, chat_ping, list_models, run_bench, stream_ping
 
 ENV_KEYS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 
@@ -42,6 +42,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_all = sub.add_parser("all", parents=[common], help="run models + chat + stream")
     for p in (p_chat, p_stream, p_all):
         p.add_argument("--model", required=True, help="model name to probe with")
+    p_bench = sub.add_parser(
+        "bench", parents=[common],
+        help="run N chat pings and report latency percentiles",
+    )
+    p_bench.add_argument("--model", required=True, help="model name to probe with")
+    p_bench.add_argument(
+        "-n", "--count", type=int, default=10,
+        help="number of sequential requests (default: 10)",
+    )
     return parser
 
 
@@ -69,6 +78,8 @@ def _run(cfg: EndpointConfig, args: argparse.Namespace) -> dict:
         return {"chat": chat_ping(cfg, args.model)}
     if args.command == "stream":
         return {"stream": stream_ping(cfg, args.model)}
+    if args.command == "bench":
+        return {"bench": run_bench(cfg, args.model, n=args.count)}
     return {
         "models": list_models(cfg),
         "chat": chat_ping(cfg, args.model),
@@ -89,6 +100,12 @@ def _describe(name: str, result: dict) -> str:
         if result.get("first_token_ms") is not None:
             text += f", first-token={result['first_token_ms']:.1f} ms"
         return text
+    if name == "bench":
+        return (
+            f"ok={result['succeeded']}/{result['requests']}, "
+            f"min={result['min_ms']} ms, p50={result['p50_ms']} ms, "
+            f"p95={result['p95_ms']} ms, max={result['max_ms']} ms"
+        )
     return ""
 
 

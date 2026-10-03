@@ -31,6 +31,9 @@ api-ping models --base-url https://api.openai.com/v1 --api-key sk-...
 # streaming probe (first-token latency, chunk/char counts)
 api-ping stream --base-url https://relay.example.com/v1 --api-key ... --model gpt-4o-mini --json
 
+# latency benchmark: 20 sequential chat pings, p50/p95 summary
+api-ping bench --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o-mini -n 20
+
 # Anthropic-protocol endpoints
 api-ping all --protocol anthropic --base-url https://api.anthropic.com/v1 \
     --api-key sk-ant-... --model claude-3-5-haiku-latest
@@ -44,6 +47,7 @@ API keys can also come from the environment: `OPENAI_API_KEY` / `ANTHROPIC_API_K
 [ok  ]  models     212.3 ms  --  42 models
 [ok  ]  chat       890.1 ms  --  reply='pong', tokens=7
 [ok  ]  stream    1204.7 ms  --  chunks=9, chars=4, first-token=310.2 ms
+[ok  ]  bench     1850.3 ms  --  ok=20/20, min=1702.1 ms, p50=1820.5 ms, p95=1973.1 ms, max=2001.0 ms
 ```
 
 ### Exit codes
@@ -72,8 +76,8 @@ python -m unittest discover -s tests -t . -v
 
 ## Roadmap
 
-See the [open issues](../../issues) — `bench` subcommand with p50/p95, embeddings
-probe, multi-endpoint comparison.
+See the [open issues](../../issues) — embeddings probe, multi-endpoint
+comparison, HTML report.
 
 ## License
 
