@@ -6,7 +6,14 @@ import json
 import threading
 import unittest
 
-from api_ping.checks import EndpointConfig, chat_ping, list_models, stream_ping
+from api_ping.checks import (
+    EndpointConfig,
+    chat_ping,
+    list_models,
+    percentile,
+    run_bench,
+    stream_ping,
+)
 from api_ping.cli import main as cli_main
 
 
@@ -187,6 +194,58 @@ class CliTests(FakeUpstreamTestCase):
             with self.assertRaises(SystemExit) as ctx:
                 cli_main(["models", "--base-url", self.base])
         self.assertEqual(ctx.exception.code, 2)
+
+
+class PercentileTests(unittest.TestCase):
+    def test_linear_interpolation(self):
+        vals = list(range(1, 101))
+        self.assertAlmostEqual(percentile(vals, 50), 50.5)
+        self.assertAlmostEqual(percentile(vals, 95), 95.05)
+        self.assertAlmostEqual(percentile(vals, 0), 1.0)
+        self.assertAlmostEqual(percentile(vals, 100), 100.0)
+
+    def test_single_value(self):
+        self.assertEqual(percentile([42.0], 95), 42.0)
+
+    def test_empty_raises(self):
+        with self.assertRaises(ValueError):
+            percentile([], 50)
+
+
+class BenchTests(FakeUpstreamTestCase):
+    def test_bench_all_ok(self):
+        report = run_bench(self.cfg(), "model-a", n=3)
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["requests"], 3)
+        self.assertEqual(report["succeeded"], 3)
+        self.assertEqual(report["failed"], 0)
+        self.assertIsNotNone(report["p50_ms"])
+        self.assertIsNotNone(report["p95_ms"])
+        self.assertLessEqual(report["min_ms"], report["p95_ms"])
+        self.assertLessEqual(report["p95_ms"], report["max_ms"])
+
+    def test_bench_counts_failures(self):
+        report = run_bench(self.cfg(key="bad"), "model-a", n=2)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["succeeded"], 0)
+        self.assertEqual(report["failed"], 2)
+        self.assertIn("401", report["error"])
+
+    def test_bench_cli_json(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = cli_main(["bench", "--base-url", self.base, "--api-key", "good",
+                             "--model", "model-a", "-n", "2", "--json"])
+        self.assertEqual(code, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["bench"]["requests"], 2)
+        self.assertTrue(payload["bench"]["ok"])
+
+    def test_bench_cli_failure_exit_code(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = cli_main(["bench", "--base-url", self.base, "--api-key", "bad",
+                             "--model", "model-a", "-n", "1", "--json"])
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,14 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-__all__ = ["EndpointConfig", "list_models", "chat_ping", "stream_ping"]
+__all__ = [
+    "EndpointConfig",
+    "list_models",
+    "chat_ping",
+    "stream_ping",
+    "percentile",
+    "run_bench",
+]
 
 DEFAULT_TIMEOUT = 15.0
 ERROR_SNIPPET = 500
@@ -209,4 +216,47 @@ def stream_ping(cfg: EndpointConfig, model: str, max_tokens: int = 32) -> dict:
         "chars": chars,
         "first_token_ms": round(first_ms, 1) if first_ms is not None else None,
         "error": None,
+    }
+
+
+def percentile(values, pct):
+    """Linear-interpolated percentile (pct in 0..100) of a numeric sequence."""
+    if not values:
+        raise ValueError("percentile of empty sequence")
+    ordered = sorted(float(v) for v in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * (pct / 100.0)
+    lo = int(rank)
+    hi = min(lo + 1, len(ordered) - 1)
+    frac = rank - lo
+    return ordered[lo] * (1.0 - frac) + ordered[hi] * frac
+
+
+def run_bench(cfg: EndpointConfig, model: str, n: int = 10, prober=None) -> dict:
+    """Run ``n`` sequential chat pings and aggregate latency statistics."""
+    n = max(1, int(n))
+    prober = prober or chat_ping
+    latencies: list = []
+    failures = 0
+    last_error = None
+    for _ in range(n):
+        result = prober(cfg, model)
+        if result.get("ok"):
+            latencies.append(float(result["latency_ms"]))
+        else:
+            failures += 1
+            last_error = result.get("error")
+    return {
+        "ok": failures == 0,
+        "latency_ms": round(percentile(latencies, 50), 1) if latencies else 0.0,
+        "requests": n,
+        "succeeded": len(latencies),
+        "failed": failures,
+        "min_ms": round(min(latencies), 1) if latencies else None,
+        "mean_ms": round(sum(latencies) / len(latencies), 1) if latencies else None,
+        "p50_ms": round(percentile(latencies, 50), 1) if latencies else None,
+        "p95_ms": round(percentile(latencies, 95), 1) if latencies else None,
+        "max_ms": round(max(latencies), 1) if latencies else None,
+        "error": last_error if failures else None,
     }
